@@ -1,0 +1,48 @@
+# sunshine-display.sh configuration
+#
+# Copy this file to sunshine-display.conf NEXT TO sunshine-display.sh. That
+# location is fixed and not configurable. If you installed the script to
+# ~/.config/sunshine/sunshine-display.sh, the config belongs at
+# ~/.config/sunshine/sunshine-display.conf.
+#
+# Every setting below is REQUIRED. If a value is missing from both this file
+# and the environment, the script refuses to run and changes nothing.
+# Do not delete lines — edit them.
+#
+# This file is sourced as shell, so it must be valid bash: no spaces around "=",
+# and quote values containing spaces or "$" expansions.
+#
+# Precedence is:  environment variable  >  this file
+#
+# The SUNSHINE_CLIENT_* values come from Sunshine at runtime. Do not set them here.
+
+# Connector name of the output Sunshine captures, exactly as shown by
+# `kscreen-doctor -o`. This is the setting most people need to change.
+VIRTUAL_OUTPUT=HDMI-A-1
+
+# Case-insensitive substring of SUNSHINE_APP_NAME that triggers Steam Big Picture.
+# An app named "Steam Big Picture" or "4K60 Steam HDR" matches "steam".
+STEAM_MATCH=steam
+
+# Refresh rate used when the client sends none. Positive integer.
+DEFAULT_FPS=60
+
+# Relative tolerance for treating a mode as matching the client's aspect ratio.
+# 0.02 is 2%. Raise to allow looser matches, lower to be stricter.
+ASPECT_TOLERANCE=0.02
+
+# Absolute refresh-rate tolerance in Hz. Absorbs EDID rounding so that a
+# 59.94 Hz mode counts as satisfying a 60 fps request.
+FPS_TOLERANCE=0.5
+
+# Seconds to wait after closing Steam Big Picture before moving displays.
+BP_CLOSE_WAIT=2
+
+# Where the saved desktop layout is written. Keeping this under XDG_RUNTIME_DIR
+# means it is discarded when the session ends, so a reboot mid-stream cannot
+# leave a stale snapshot that tries to restore a layout that no longer exists.
+# Only move it elsewhere if you understand that consequence.
+SUNSHINE_DISPLAY_STATE="${XDG_RUNTIME_DIR:-/tmp}/sunshine-display-state.json"
+
+# Log file. Every kscreen-doctor command and its result is recorded here.
+SUNSHINE_DISPLAY_LOG="$HOME/.config/sunshine/sunshine-display.log"

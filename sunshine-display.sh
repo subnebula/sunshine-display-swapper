@@ -11,20 +11,96 @@
 # activate and deactivate both accept --dry-run, which prints the kscreen-doctor
 # command instead of running it and leaves the state file alone.
 #
+# Configuration comes from sunshine-display.conf next to this script, with any
+# environment variable of the same name taking precedence. Every setting is
+# required; see the block below.
+#
 # Client parameters come from Sunshine's prep-cmd environment:
 #   SUNSHINE_CLIENT_WIDTH / _HEIGHT / _FPS / _HDR, SUNSHINE_APP_NAME
-# All are optional; sane defaults apply when unset.
+# Those are optional and are read per stream, never from the config file.
 
 set -euo pipefail
 
-VIRTUAL_OUTPUT="${VIRTUAL_OUTPUT:-HDMI-A-1}"
-STATE_FILE="${SUNSHINE_DISPLAY_STATE:-${XDG_RUNTIME_DIR:-/tmp}/sunshine-display-state.json}"
-LOG_FILE="${SUNSHINE_DISPLAY_LOG:-${HOME}/.config/sunshine/sunshine-display.log}"
-STEAM_MATCH="${STEAM_MATCH:-steam}"
-BP_CLOSE_WAIT="${BP_CLOSE_WAIT:-2}"
-DEFAULT_FPS="${DEFAULT_FPS:-60}"
-ASPECT_TOLERANCE="${ASPECT_TOLERANCE:-0.02}"
-FPS_TOLERANCE="${FPS_TOLERANCE:-0.5}"
+# Settings resolve as: environment variable > config file. Every setting is
+# required and must come from one of those two places; the script refuses to
+# run otherwise rather than guessing at which output to switch to. Validation
+# happens before anything touches the display, so a bad or missing config
+# aborts with the desktop untouched.
+#
+# The config file is always sunshine-display.conf sitting next to this script.
+# Its location is deliberately not configurable: Sunshine does not run prep-cmd
+# through a shell, so a "VAR=value bash script.sh" prefix in apps.json is not
+# parsed as an assignment and cannot be used to point the script elsewhere.
+#
+# BASH_SOURCE is resolved with readlink so that a symlinked install finds the
+# config next to the real script rather than next to the symlink.
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+CONFIG_FILE="$SCRIPT_DIR/sunshine-display.conf"
+
+_SETTINGS=(
+    VIRTUAL_OUTPUT STEAM_MATCH DEFAULT_FPS ASPECT_TOLERANCE FPS_TOLERANCE
+    BP_CLOSE_WAIT SUNSHINE_DISPLAY_STATE SUNSHINE_DISPLAY_LOG
+)
+
+# Remember which settings arrived from the environment, so sourcing the config
+# file cannot silently clobber an explicit override.
+for _s in "${_SETTINGS[@]}"; do
+    declare "_env_${_s}=${!_s-}"
+done
+
+# The config file is sourced as shell, exactly like .bashrc.
+CONFIG_LOADED=""
+if [[ -f "$CONFIG_FILE" && -r "$CONFIG_FILE" ]]; then
+    # shellcheck source=/dev/null
+    source "$CONFIG_FILE"
+    CONFIG_LOADED="$CONFIG_FILE"
+fi
+
+for _s in "${_SETTINGS[@]}"; do
+    _e="_env_${_s}"
+    [[ -n "${!_e}" ]] && declare -g "${_s}=${!_e}"
+done
+unset _s _e
+
+# Fail loudly and specifically. This runs on every invocation including
+# deactivate, so the message has to be enough to fix the problem from a TTY.
+_missing=()
+for _s in "${_SETTINGS[@]}"; do
+    [[ -n "${!_s-}" ]] || _missing+=("$_s")
+done
+if [[ ${#_missing[@]} -gt 0 ]]; then
+    {
+        echo "sunshine-display.sh: refusing to run, unset setting(s): ${_missing[*]}"
+        if [[ -n "$CONFIG_LOADED" ]]; then
+            echo "  config file $CONFIG_LOADED was loaded but does not define them."
+        else
+            echo "  no config file found at $CONFIG_FILE"
+            echo "  copy sunshine-display.conf.example there, or set the variables in the environment."
+        fi
+        echo "  every setting is required; nothing was changed."
+    } >&2
+    exit 1
+fi
+unset _s _missing
+
+_bad=()
+[[ "$DEFAULT_FPS" =~ ^[0-9]+$ ]] || _bad+=("DEFAULT_FPS='$DEFAULT_FPS' (want a positive integer)")
+[[ "$BP_CLOSE_WAIT" =~ ^[0-9]+([.][0-9]+)?$ ]] || _bad+=("BP_CLOSE_WAIT='$BP_CLOSE_WAIT' (want a number)")
+[[ "$ASPECT_TOLERANCE" =~ ^[0-9]*[.]?[0-9]+$ ]] || _bad+=("ASPECT_TOLERANCE='$ASPECT_TOLERANCE' (want a number)")
+[[ "$FPS_TOLERANCE" =~ ^[0-9]*[.]?[0-9]+$ ]] || _bad+=("FPS_TOLERANCE='$FPS_TOLERANCE' (want a number)")
+if [[ ${#_bad[@]} -gt 0 ]]; then
+    {
+        echo "sunshine-display.sh: refusing to run, invalid setting(s):"
+        printf '  %s\n' "${_bad[@]}"
+        echo "  nothing was changed."
+    } >&2
+    exit 1
+fi
+unset _bad
+
+STATE_FILE="$SUNSHINE_DISPLAY_STATE"
+LOG_FILE="$SUNSHINE_DISPLAY_LOG"
 
 DRY_RUN=0
 KD_JSON=""
@@ -329,6 +405,8 @@ cmd_activate() {
     output_exists "$VIRTUAL_OUTPUT" || die "virtual output $VIRTUAL_OUTPUT not found"
 
     log "=== activate ==="
+    [[ -n "$CONFIG_LOADED" ]] && log "config loaded from $CONFIG_LOADED"
+    log "virtual output: $VIRTUAL_OUTPUT"
     log "env: $(env | grep -E '^SUNSHINE_' | sort | tr '\n' ' ')"
 
     local req rw rh rfps rhdr
@@ -567,6 +645,11 @@ cmd_status() {
     load_json
     load_caps
 
+    if [[ -n "$CONFIG_LOADED" ]]; then
+        echo "config file    : $CONFIG_LOADED (loaded)"
+    else
+        echo "config file    : $CONFIG_FILE (not present; all values from environment)"
+    fi
     echo "virtual output : $VIRTUAL_OUTPUT"
     echo "state file     : $STATE_FILE $([[ -r "$STATE_FILE" ]] && echo "(present)" || echo "(absent)")"
     echo "log file       : $LOG_FILE"

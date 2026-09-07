@@ -1,3 +1,6 @@
 # Runtime artifacts produced by the script, never committed
 *.log
 sunshine-display-state.json
+
+# Local config; only the .example file is tracked
+sunshine-display.conf
